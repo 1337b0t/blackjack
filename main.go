@@ -57,43 +57,94 @@ func min(a, b int) int {
 	return b
 }
 
-func main() {
-	cards := deck.New(deck.Deck(3), deck.Shuffle)
+type GameState struct {
+	Deck   []deck.Card
+	State  State
+	Player Hand
+	Dealer Hand
+}
+
+type State uint8
+
+const (
+	StatePlayerTurn State = iota
+	StateDealerTurn
+	StateHandOver
+)
+
+func (gs *GameState) CurrentPlayer() *Hand {
+	switch gs.State {
+	case StatePlayerTurn:
+		return &gs.Player
+	case StateDealerTurn:
+		return &gs.Dealer
+	default:
+		panic("player state does not exist")
+	}
+}
+
+func clone(gs GameState) GameState {
+	ret := GameState{
+		Deck:   make([]deck.Card, len(gs.Deck)),
+		State:  gs.State,
+		Player: make(Hand, len(gs.Player)),
+		Dealer: make(Hand, len(gs.Dealer)),
+	}
+	copy(ret.Deck, gs.Deck)
+	copy(ret.Player, gs.Deck)
+	copy(ret.Dealer, gs.Dealer)
+	return ret
+}
+
+func Shuffle(gs GameState) GameState {
+	ret := clone(gs)
+	ret.Deck = deck.New(deck.Deck(3), deck.Shuffle)
+	return ret
+}
+
+func Deal(gs GameState) GameState {
+	ret := clone(gs)
+	ret.Player = make(Hand, 0, 5)
+	ret.Dealer = make(Hand, 0, 5)
 	var card deck.Card
-	var player, dealer Hand
-
 	for i := 0; i < 2; i++ {
-		for _, hand := range []*Hand{&player, &dealer} {
-			card, cards = draw(cards)
-			*hand = append(*hand, card)
-		}
+		card, ret.Deck = draw(ret.Deck)
+		ret.Player = append(ret.Player, card)
+		card, ret.Deck = draw(ret.Deck)
+		ret.Dealer = append(ret.Dealer, card)
+
 	}
 
-	var input string
-	for input != "s" {
-		fmt.Println("Player: ", player)
-		fmt.Println("Dealer: ", dealer.DealerString())
-		fmt.Println("What will you do? (h)it, (s)stand")
-		fmt.Scanf("%s\n", &input)
-		switch input {
-		case "h":
-			card, cards = draw(cards)
-			player = append(player, card)
-		}
+	ret.State = StatePlayerTurn
+
+	return ret
+
+}
+
+func Hit(gs GameState) GameState {
+	ret := clone(gs)
+	hand := ret.CurrentPlayer()
+	var card deck.Card
+	card, ret.Deck = draw(ret.Deck)
+	*hand = append(*hand, card)
+	if hand.Score() > 21 {
+		return Stand(gs)
 	}
+	return ret
+}
 
-	// if dealer score <=16 we hit
-	// if dealer has soft 17, then we hit
+func Stand(gs GameState) GameState {
+	ret := clone(gs)
+	ret.State++
+	return ret
+}
 
-	for dealer.Score() <= 16 || (dealer.Score() == 17 && dealer.MinScore() != 17) {
-		card, cards = draw(cards)
-		dealer = append(dealer, card)
-	}
-
-	pScore, dScore := player.Score(), dealer.Score()
+func EndHand(gs GameState) GameState {
+	ret := clone(gs)
+	pScore, dScore := gs.Player.Score(), gs.Dealer.Score()
 	fmt.Println("==FINAL HANDS==")
-	fmt.Println("Player:", player, "\nScore:", pScore)
-	fmt.Println("Dealer", dealer, "\nScore:", dScore)
+	fmt.Println("Player:", gs.Player, "\nScore:", pScore)
+	fmt.Println("Dealer", gs.Dealer, "\nScore:", dScore)
 
 	switch {
 	case pScore > 21:
@@ -106,6 +157,45 @@ func main() {
 		fmt.Println("you lose!")
 	case dScore == pScore:
 		fmt.Println("draw")
+	}
+	fmt.Println()
+	ret.Player = nil
+	ret.Dealer = nil
+	return ret
+}
+
+func main() {
+	var gs GameState
+	gs = Shuffle(gs)
+	gs = Deal(gs)
+
+	var input string
+	for gs.State == StatePlayerTurn {
+		fmt.Println("Player: ", gs.Player)
+		fmt.Println("Dealer: ", gs.Dealer.DealerString())
+		fmt.Println("What will you do? (h)it, (s)stand")
+		fmt.Scanf("%s\n", &input)
+		switch input {
+		case "h":
+			gs = Hit(gs)
+		case "s":
+			gs = Stand(gs)
+		default:
+			fmt.Println("Invalid option:", input)
+		}
+	}
+
+	// if dealer score <=16 we hit
+	// if dealer has soft 17, then we hit
+
+	for gs.State == StateDealerTurn {
+		if gs.Dealer.Score() <= 16 || (gs.Dealer.Score() == 17 && gs.Dealer.MinScore() != 17) {
+			gs = Hit(gs)
+		} else {
+			gs = Stand(gs)
+		}
+
+		EndHand(gs)
 	}
 
 }
